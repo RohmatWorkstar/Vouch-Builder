@@ -14,6 +14,13 @@ app.use(express.static(path.join(__dirname, '../public')));
 // API endpoint
 app.get('/api/handover', generateHandover);
 
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+const port = process.env.PORT || 3000;
+
+// Export the app for Vercel Serverless Function compatibility
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`Server is running on http://localhost:${port}`);
+    });
+}
+
+module.exports = app;
