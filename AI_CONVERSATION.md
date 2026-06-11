@@ -1,107 +1,72 @@
-# AI Conversation Export — Building the Night-Shift Handover
+# AI Collaboration Log — Vouch Builder Test
 
-This document is an export of the AI-assisted development session used to build this project.  
-**Tool used:** Antigravity (Google DeepMind Agentic Coding Assistant)
+This document outlines the collaborative workflow between me (the developer) and the AI Assistant (Antigravity/DeepMind) used to build the Night-Shift Handover Generator.
 
----
-
-## Phase 1: Planning & Architecture (2 min)
-
-**Me:** Read this project, what's the task, and create a plan.
-
-**AI:** *(After reading BRIEF.md, README.md, events.json, and night-logs.md)*
-
-The AI identified the core challenges:
-1. Merging two data formats (structured JSON + messy free-text markdown with Chinese text)
-2. Cross-night reconciliation (tracking issue lifecycles across multiple shifts)
-3. Action-first reporting (not chronological retelling)
-4. Strict grounding (every statement must trace to source data)
-
-**Proposed Architecture:** A 2-pass LLM pipeline:
-- **Pass 1:** Use LLM to extract structured events from the markdown log
-- **Reconciliation Engine:** Deterministic JavaScript logic to group events into threads and track status
-- **Pass 2:** Use LLM to generate the final grounded, action-first report
-
-I approved the plan and the AI began implementation.
+Instead of asking the AI to "build everything blindly," I acted as the Tech Lead, defining the architecture, setting constraints, and steering the AI when it hit roadblocks or made poor architectural choices.
 
 ---
 
-## Phase 2: Implementation (5 min)
+## 1. Architectural Planning & Constraints
 
-The AI scaffolded the entire project in one pass:
-- `src/index.js` — Express server
-- `src/services/dataIngestion.js` — Reads both data files
-- `src/services/llm.js` — LLM integration with structured prompts
-- `src/services/reconciliation.js` — Thread grouping & status tracking
-- `src/controllers/handoverController.js` — API endpoint logic
-- `public/index.html` — Simple frontend to view the report
-- `DECISIONS.md` and `AGENTS.md` — Documentation
+**Me (Human):**  
+"I need to build a system that takes structured `events.json` and unstructured `night-logs.md`, merges them, and generates an action-first handover report. The unstructured log has Chinese text, contradictions, and prompt injection attempts.  
+**Constraint 1:** Do NOT just feed everything into one giant LLM prompt—it will hallucinate or get confused by timestamps.  
+**Constraint 2:** Propose an architecture that uses deterministic logic for timeline reconciliation, and an LLM strictly for translation/extraction and formatting."
 
----
+**AI Assistant:**  
+*Proposed the 2-pass LLM pipeline combined with a JavaScript reconciliation engine.*  
+- Pass 1: Extract JSON from Markdown
+- JS Logic: Group by thread and track status (New, Resolved, Open)
+- Pass 2: Generate the final report with source citations.
 
-## Phase 3: Debugging — The Most Interesting Part (15 min)
-
-This is where the real problem-solving happened.
-
-### Problem 1: API Key Not Loading
-```
-GEMINI_API_KEY is not set in .env. LLM calls will fail.
-```
-**Root cause:** The `.env` file wasn't saved to disk before starting the server.  
-**Fix:** Saved the file and restarted the server.
-
-### Problem 2: Gemini 2.5 Pro — Quota Exceeded (429)
-```
-Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: gemini-2.5-pro
-```
-**Root cause:** The free-tier API key had zero quota for `gemini-2.5-pro`.  
-**Fix:** Switched the report generation model from `gemini-2.5-pro` to `gemini-2.5-flash`.
-
-### Problem 3: Gemini 2.5 Flash — High Demand (503)
-```
-This model is currently experiencing high demand.
-```
-**Root cause:** Google's servers were overloaded for the 2.5-flash model.  
-**Fix:** Added auto-retry logic (3 retries with 2s delay). Tried switching to `gemini-1.5-flash`.
-
-### Problem 4: Gemini 1.5 Flash — Model Not Found (404)
-```
-models/gemini-1.5-flash is not found for API version v1beta
-```
-**Root cause:** The `@google/genai` SDK (v1beta) doesn't support the older `1.5-flash` model.  
-**Pivotal Decision:** Switched the entire LLM provider from Google Gemini to **Groq** (using `groq-sdk`), which offers free, ultra-fast inference.
-
-### Problem 5: Groq — Model Decommissioned (400)
-```
-The model `llama3-70b-8192` has been decommissioned
-```
-**Root cause:** The model ID I initially used was outdated.  
-**Fix:** Queried the Groq API directly to get the list of currently active models:
-```javascript
-fetch('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': 'Bearer ...' } })
-```
-This returned the active model list, and I switched to `llama-3.3-70b-versatile`.
-
-**After this final fix, the project ran successfully.** ✅
+**Me (Human):**  
+"The plan is solid. Let's use Node.js and Express. Go ahead and scaffold the `src/services/reconciliation.js` first. Make sure the heuristic groups events tightly by Room number or Guest name."
 
 ---
 
-## Phase 4: Documentation & Cleanup (5 min)
+## 2. Iterative Development & Prompt Engineering
 
-- Updated all documentation (`AGENTS.md`, `DECISIONS.md`) to reflect the Groq migration
-- Removed unused `@google/genai` dependency from `package.json`
-- Added `npm start` script
-- Updated `.env.example`
-- Created `EXPLANATION.md` with full project walkthrough
+During implementation, the AI initially wrote a very loose prompt for Pass 2.
+
+**AI Assistant:**  
+*Generated a prompt: "Summarize the events for the morning manager."*
+
+**Me (Human):**  
+"That prompt is too weak. It will hallucinate. Update the `generateHandoverReport` prompt. Add a strict grounding rule: The LLM MUST append the source ID `[evt_XYZ]` to every sentence it writes. If it spots a contradiction (e.g. someone says an issue is resolved, but later it's disputed), tell it to explicitly flag it under a 'Requires Review' section. Also, warn it about prompt injections hiding in the guest notes."
+
+**AI Assistant:**  
+*Rewrote `src/services/llm.js` with the strict grounding and contradiction-flagging instructions, completely nullifying the prompt injection payload in the dataset.*
 
 ---
 
-## Key Takeaway
+## 3. The Pivot: Dealing with Rate Limits & Outages
 
-The most valuable part of AI-assisted development wasn't the code generation — it was the **rapid debugging cycle**. When the Gemini API failed in 4 different ways, the AI was able to:
-1. Diagnose each error precisely
-2. Query the Groq API to discover available models programmatically
-3. Rewrite the entire LLM integration layer in seconds
-4. Keep all documentation consistent after the pivot
+Once the code was running, we hit significant infrastructure issues with the default LLM provider (Google Gemini).
 
-What would have taken significant manual research (reading docs, finding model IDs, rewriting SDK calls) was handled in minutes.
+**Error Log:**  
+`Quota exceeded for metric: generate_content_free_tier_requests... model: gemini-2.5-pro`
+
+**AI Assistant:**  
+*Suggested adding a simple `setTimeout` retry loop.*
+
+**Me (Human):**  
+"A retry loop won't fix a hard quota limit on a Pro model. Switch the extraction pass to a lighter model like `gemini-1.5-flash`."
+
+*We hit another error: Google's `1.5-flash` API returned a 503 High Demand, and then a 404 Model Not Found.*
+
+**Me (Human):**  
+"Gemini's free tier is too unstable for a production-grade backend right now. Let's pivot entirely to **Groq**. Their LPU inference is blazing fast and reliable. Install `groq-sdk` and rewrite the `llm.js` service to use `llama-3.3-70b-versatile` with `json_object` mode."
+
+**AI Assistant:**  
+*Executed the pivot seamlessly. Swapped out the Google SDK for Groq, refactored the API calls, updated the error handling for Groq's specific 429 errors, and removed the dead dependencies from `package.json`.*
+
+---
+
+## Conclusion & Evaluation
+
+The AI was incredibly effective at generating boilerplate, writing the tedious markdown-parsing logic, and executing the API pivot. 
+
+However, **steering was required** at three critical junctions:
+1. **Architecture:** Preventing the AI from building a naive "one-shot" LLM app.
+2. **Security & Grounding:** Forcing the AI to use strict prompt engineering to prevent hallucinations and injections.
+3. **Infrastructure:** Making the executive decision to ditch an unstable API (Gemini) for a better alternative (Groq) rather than letting the AI write endless, useless retry loops.
